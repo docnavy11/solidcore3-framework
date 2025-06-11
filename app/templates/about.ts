@@ -6,11 +6,11 @@ import { Heading, Text, Card, Button } from '../../core/ui/components/index.ts';
  * This overrides the core about template with TaskManager-specific content
  */
 export default function taskManagerAboutTemplate(context: TemplateContext): string {
-  const { app } = context;
+  const { app, view } = context;
   
   return `
     <div style="max-width: 800px; margin: 0 auto; padding: 2rem;">
-      ${Heading({ level: 1, children: 'About TaskManager' })}
+      ${Heading({ level: 1, children: `About ${app.name}` })}
       
       <div style="margin: 2rem 0;">
         ${Text({ 
@@ -76,6 +76,7 @@ export default function taskManagerAboutTemplate(context: TemplateContext): stri
           variant: 'secondary',
           onClick: "window.location.href='/tasks/new'"
         })}
+        ${view.title ? `<!-- Template for: ${view.title} -->` : ''}
       </div>
     </div>
   `;

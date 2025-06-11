@@ -357,3 +357,5 @@ The runtime engine must be:
 - **Secure**: Never trust input, enforce permissions
 
 When you need to do multiple tool calls and they can be done simultaneously, please do so.
+
+DO NOT DO a git push every single time something changes, only when users asks
