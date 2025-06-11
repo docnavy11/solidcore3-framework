@@ -1,0 +1,38 @@
+name: Deploy Demo
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy to Deno Deploy
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Deno
+      uses: denoland/setup-deno@v1
+      with:
+        deno-version: v1.40.x
+
+    - name: Deploy to Deno Deploy
+      uses: denoland/deployctl@v1
+      with:
+        project: "solidcore3-demo"
+        entrypoint: "runtime/server/main.ts"
+        # Set up Deno Deploy project at https://dash.deno.com/
+        # and add DENO_DEPLOY_TOKEN to repository secrets
+
+    # Alternative: Manual deployment step
+    - name: Manual Deploy Instructions
+      if: failure()
+      run: |
+        echo "🚀 To deploy manually:"
+        echo "1. Install deployctl: deno install -A -r -f https://deno.land/x/deploy/deployctl.ts"
+        echo "2. Login: deployctl login"
+        echo "3. Deploy: deployctl deploy --project=solidcore3-demo runtime/server/main.ts"
+        echo "4. Visit: https://solidcore3-demo.deno.dev"
