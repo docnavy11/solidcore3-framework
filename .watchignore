@@ -1,0 +1,9 @@
+# Ignore these files/directories from hot reload
+node_modules/
+vendor/
+.git/
+*.md
+*.log
+.DS_Store
+dist/
+build/

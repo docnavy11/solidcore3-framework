@@ -1,0 +1,48 @@
+{
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-write --allow-env --allow-ffi --watch runtime/server/main.ts",
+    "dev:verbose": "deno run --allow-net --allow-read --allow-write --allow-env --allow-ffi --watch --log-level=debug runtime/server/main.ts",
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env --allow-ffi runtime/server/main.ts",
+    "test": "deno test --allow-read",
+    "fmt": "deno fmt",
+    "lint": "deno lint",
+    "type-check": "deno check **/*.ts"
+  },
+  "imports": {
+    "@hono/hono": "https://deno.land/x/hono@v4.3.11/mod.ts",
+    "@sqlite": "https://deno.land/x/sqlite3@0.12.0/mod.ts",
+    "preact": "https://esm.sh/preact@10.23.2",
+    "preact/hooks": "https://esm.sh/preact@10.23.2/hooks",
+    "preact-render-to-string": "https://esm.sh/preact-render-to-string@6.5.11",
+    "htm": "https://esm.sh/htm@3.1.1",
+    "htm/preact": "https://esm.sh/htm@3.1.1/preact",
+    "@std/fs": "https://deno.land/std@0.224.0/fs/mod.ts",
+    "@std/path": "https://deno.land/std@0.224.0/path/mod.ts",
+    "@std/assert": "https://deno.land/std@0.224.0/assert/mod.ts"
+  },
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "noImplicitThis": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 80,
+    "indentWidth": 2,
+    "singleQuote": true,
+    "proseWrap": "preserve"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}
