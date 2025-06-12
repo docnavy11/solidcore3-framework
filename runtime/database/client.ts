@@ -31,7 +31,7 @@ class SQLiteClient implements DatabaseClient {
         };
       }
     } catch (error) {
-      console.error('Database query error:', error);
+      // Don't log here - let the caller decide what to do with the error
       throw error;
     }
   }
@@ -66,4 +66,17 @@ export function getDatabase(): DatabaseClient {
     dbInstance = createDatabaseClient();
   }
   return dbInstance;
+}
+
+// Cleanup function for graceful shutdown
+export function closeDatabaseConnection(): void {
+  if (dbInstance) {
+    try {
+      dbInstance.close();
+      dbInstance = null;
+      console.log('✅ Database connection closed');
+    } catch (error) {
+      console.error('Error closing database connection:', error);
+    }
+  }
 }

@@ -1,5 +1,6 @@
 import { ValidationContext, ValidationErrorCode } from './types.ts';
 import { SafeExpressionParser } from '../expression/parser.ts';
+import { TemplateEngine } from '../../runtime/engine/template-engine.ts';
 
 export class WorkflowValidator {
   private expressionParser: SafeExpressionParser;
@@ -247,15 +248,26 @@ export class WorkflowValidator {
       ));
     }
     
-    // Validate email format (basic check)
-    if (typeof action.to === 'string' && !action.to.includes('@')) {
+    // Validate email format (basic check) - but skip if it contains template variables
+    if (typeof action.to === 'string' && !action.to.includes('@') && !action.to.includes('${')) {
       context.addWarning(context.createWarning(
         'WORKFLOW_EMAIL_INVALID_FORMAT',
         `Email action in workflow '${workflowName}' 'to' field doesn't look like an email`,
         `${actionPath}.to`,
-        'Use valid email format: user@domain.com',
+        'Use valid email format: user@domain.com or template: ${user}',
         { recipient: action.to }
       ));
+    }
+
+    // Validate template syntax in email fields
+    if (typeof action.to === 'string') {
+      this.validateTemplateString(action.to, workflowName, `${actionPath}.to`, context);
+    }
+    if (typeof action.subject === 'string') {
+      this.validateTemplateString(action.subject, workflowName, `${actionPath}.subject`, context);
+    }
+    if (typeof action.body === 'string') {
+      this.validateTemplateString(action.body, workflowName, `${actionPath}.body`, context);
     }
   }
   
@@ -276,8 +288,8 @@ export class WorkflowValidator {
       ));
     }
     
-    // Validate URL format (basic check)
-    if (typeof action.url === 'string') {
+    // Validate URL format (basic check) - but skip if it contains template variables
+    if (typeof action.url === 'string' && !action.url.includes('${')) {
       try {
         new URL(action.url);
       } catch {
@@ -285,10 +297,15 @@ export class WorkflowValidator {
           'WORKFLOW_WEBHOOK_MALFORMED_URL',
           `Webhook action in workflow '${workflowName}' has malformed URL`,
           `${actionPath}.url`,
-          'Use valid URL format: https://api.example.com/webhook',
+          'Use valid URL format: https://api.example.com/webhook or template: https://api.${data.priority}-alerts.com/webhook',
           { url: action.url }
         ));
       }
+    }
+
+    // Validate template syntax in URL
+    if (typeof action.url === 'string') {
+      this.validateTemplateString(action.url, workflowName, `${actionPath}.url`, context);
     }
   }
   
@@ -299,7 +316,7 @@ export class WorkflowValidator {
         'WORKFLOW_LOG_NO_MESSAGE',
         `Log action in workflow '${workflowName}' should have a message`,
         `${actionPath}.message`,
-        'Add message: { type: "log", message: "Task completed" }'
+        'Add message: { type: "log", message: "Task completed" } or { type: "log", message: "${user} completed ${data.title}" }'
       ));
     } else if (typeof action.message !== 'string') {
       context.addError(context.createError(
@@ -307,6 +324,9 @@ export class WorkflowValidator {
         `Log action in workflow '${workflowName}' message must be a string`,
         `${actionPath}.message`
       ));
+    } else {
+      // Validate template syntax in message
+      this.validateTemplateString(action.message, workflowName, `${actionPath}.message`, context);
     }
   }
   
@@ -337,6 +357,67 @@ export class WorkflowValidator {
         `${workflowPath}.description`,
         'Add description explaining what this workflow does'
       ));
+    }
+  }
+
+  /**
+   * Validate template syntax in string fields
+   * Checks for ${variable} syntax and validates template structure
+   */
+  private validateTemplateString(value: string, workflowName: string, fieldPath: string, context: ValidationContext): void {
+    if (typeof value !== 'string') {
+      return; // Only validate strings
+    }
+
+    // Check template syntax
+    const validation = TemplateEngine.validateTemplate(value);
+    if (!validation.valid) {
+      validation.errors.forEach(error => {
+        context.addError(context.createError(
+          'WORKFLOW_TEMPLATE_INVALID',
+          `Workflow '${workflowName}' has invalid template syntax in ${fieldPath}: ${error}`,
+          fieldPath,
+          'Use valid template syntax like: "Task ${data.title} completed by ${user}"'
+        ));
+      });
+    }
+
+    // Extract and validate variable references
+    const variables = TemplateEngine.extractVariables(value);
+    if (variables.length > 0) {
+      // Check for common mistakes
+      variables.forEach(variable => {
+        // Warn about potentially undefined variables
+        if (variable.includes(' ')) {
+          context.addWarning(context.createWarning(
+            'WORKFLOW_TEMPLATE_SPACING',
+            `Workflow '${workflowName}' template variable '${variable}' contains spaces`,
+            fieldPath,
+            'Remove spaces from template variables: ${data.title} not ${data . title}'
+          ));
+        }
+
+        // Check for reserved words or invalid property names
+        if (variable.startsWith('_') || variable.includes('__')) {
+          context.addWarning(context.createWarning(
+            'WORKFLOW_TEMPLATE_RESERVED',
+            `Workflow '${workflowName}' template variable '${variable}' uses reserved naming`,
+            fieldPath,
+            'Avoid variables starting with underscore: ${data.title} not ${_data.title}'
+          ));
+        }
+      });
+
+      // Provide helpful info about available variables (only for first occurrence)
+      if (variables.length === TemplateEngine.extractVariables(value).length) {
+        context.addWarning(context.createWarning(
+          'WORKFLOW_TEMPLATE_INFO',
+          `Workflow '${workflowName}' uses template variables: ${variables.join(', ')}`,
+          fieldPath,
+          'Available variables: entity, entityId, data.*, user, timestamp, behavior, now, date, time',
+          { templateVariables: variables }
+        ));
+      }
     }
   }
 }

@@ -1,18 +1,7 @@
 import { AppDefinition, WorkflowDefinition } from '../../core/types/index.ts';
+import { EventData, EventHandler, EventEmitterInterface } from '../../core/types/events.ts';
 import { SafeExpressionParser } from '../../core/expression/parser.ts';
-
-export interface EventData {
-  entity: string;
-  entityId: string;
-  behavior?: string;
-  data: Record<string, any>;
-  timestamp: string;
-  user?: string;
-}
-
-export interface EventHandler {
-  (event: EventData): Promise<void> | void;
-}
+import { TemplateEngine } from '../engine/template-engine.ts';
 
 export class EventEmitter {
   private listeners: Map<string, EventHandler[]> = new Map();
@@ -150,18 +139,21 @@ export class EventEmitter {
   private async executeComplexAction(action: any, data: EventData): Promise<void> {
     console.log(`🔧 Executing complex action:`, action.type);
     
-    switch (action.type) {
+    // Process template interpolation for the entire action
+    const processedAction = TemplateEngine.processWorkflowAction(action, data);
+    
+    switch (processedAction.type) {
       case 'webhook':
-        await this.callWebhook(action.params.url, data);
+        await this.callWebhook(processedAction.params?.url || processedAction.url, data);
         break;
       case 'database':
-        await this.executeDatabaseAction(action.params, data);
+        await this.executeDatabaseAction(processedAction.params || processedAction, data);
         break;
       case 'email':
-        await this.sendCustomEmail(action.params, data);
+        await this.sendCustomEmail(processedAction.params || processedAction, data);
         break;
       default:
-        console.warn(`Unknown complex action type: ${action.type}`);
+        console.warn(`Unknown complex action type: ${processedAction.type}`);
     }
   }
 
@@ -215,11 +207,17 @@ export class EventEmitter {
   private async callWebhook(url: string, data: EventData): Promise<void> {
     console.log(`🔗 Webhook called: ${url}`);
     try {
-      await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
+      // In development, just log the webhook call instead of making actual HTTP request
+      console.log(`   Payload:`, JSON.stringify(data, null, 2));
+      
+      // Uncomment for production webhook calls:
+      // await fetch(url, {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify(data)
+      // });
+      
+      await new Promise(resolve => setTimeout(resolve, 50));
     } catch (error) {
       console.error(`Webhook call failed:`, error);
       throw error;
@@ -233,8 +231,12 @@ export class EventEmitter {
   }
 
   private async sendCustomEmail(params: any, data: EventData): Promise<void> {
-    console.log(`📧 Custom email sent to ${params.to}:`, params.subject);
-    // Mock implementation
+    console.log(`📧 Custom email sent to ${params.to}`);
+    console.log(`   Subject: ${params.subject}`);
+    if (params.body) {
+      console.log(`   Body: ${params.body}`);
+    }
+    // Mock implementation - in production would use actual email service
     await new Promise(resolve => setTimeout(resolve, 100));
   }
 }

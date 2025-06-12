@@ -1,7 +1,10 @@
 import { TruthLoader } from '../../core/loader/loader.ts';
 import { DatabaseMigrator } from '../database/migrator.ts';
+import { getDatabase } from '../database/client.ts';
 import { APIGenerator } from '../../core/generators/api.ts';
-import { UIGenerator } from '../../core/generators/ui.ts';
+import AuthenticatedAPIGenerator from '../../core/generators/authenticated-api.ts';
+import { createAuthRoutes } from '../auth/routes.ts';
+import { NewUIManager } from '../../core/generators/ui-manager.ts';
 import { DashboardGenerator } from '../../core/dashboard/generator.ts';
 import { EventEmitter } from '../events/emitter.ts';
 import { ExtensionLoader } from '../extensions/loader.ts';
@@ -84,18 +87,36 @@ export class RuntimeEngine {
       await this.extensionRegistry.initialize();
       console.log('✅ Extension system initialized');
 
-      // Generate API routes
+      // Generate API routes with authentication if enabled
       console.log('🔌 Generating API routes...');
-      const apiGenerator = new APIGenerator(this.currentApp);
-      apiGenerator.setEventEmitter(this.eventEmitter);
-      this.apiRoutes = await apiGenerator.generate();
-      console.log('✅ API routes generated');
+      const useAuth = this.currentApp.settings?.auth?.enabled;
+      
+      if (useAuth) {
+        console.log('🔐 Authentication enabled - using authenticated API generator');
+        const apiGenerator = new AuthenticatedAPIGenerator(this.currentApp);
+        apiGenerator.setDatabase(getDatabase());
+        apiGenerator.setEventEmitter(this.eventEmitter);
+        this.apiRoutes = await apiGenerator.generate();
+        
+        // Mount auth routes
+        const authRoutes = createAuthRoutes();
+        this.apiRoutes.route('/auth', authRoutes);
+        console.log('✅ API routes generated with authentication');
+      } else {
+        console.log('🔓 Authentication disabled - using standard API generator');
+        const apiGenerator = new APIGenerator(this.currentApp);
+        apiGenerator.setDatabase(getDatabase());
+        apiGenerator.setEventEmitter(this.eventEmitter);
+        this.apiRoutes = await apiGenerator.generate();
+        console.log('✅ API routes generated');
+      }
 
-      // Generate UI pages
-      console.log('🎨 Generating UI pages...');
-      const uiGenerator = new UIGenerator(this.currentApp);
-      this.uiPages = await uiGenerator.generate();
-      console.log('✅ UI pages generated');
+      // Generate UI components and pages
+      console.log('🎨 Generating UI components and pages...');
+      const uiManager = new NewUIManager(this.currentApp);
+      await uiManager.generateAll();
+      this.uiPages = { '/': await uiManager.generateSPAResponse() };
+      console.log(`✅ Generated SPA architecture`);
 
       // Generate dashboard pages
       console.log('📊 Generating dashboard pages...');
@@ -115,9 +136,19 @@ export class RuntimeEngine {
     }
   }
 
+  private watchingStarted = false;
+
   private startWatching(): void {
+    if (this.watchingStarted) {
+      console.log('File watching already started, skipping...');
+      return;
+    }
+    
+    this.watchingStarted = true;
+    
+    // Start watching in the background without blocking
     this.loader.watch(async (app) => {
-      console.log('🔄 Truth file changed, reloading...');
+      console.log('\n🔄 Hot reload triggered...');
       this.currentApp = app;
       
       try {
@@ -130,28 +161,51 @@ export class RuntimeEngine {
           return; // Don't update runtime if validation fails
         }
         
-        await this.migrator.migrate(app);
+        // Skip database migration during hot reload to avoid locking
+        // Database schema changes require a restart anyway
+        console.log('ℹ️  Skipping database migration during hot reload (restart for schema changes)');
         
         // Reinitialize event system
         this.eventEmitter = new EventEmitter(app);
         
-        // Regenerate API routes
-        const apiGenerator = new APIGenerator(app);
-        apiGenerator.setEventEmitter(this.eventEmitter);
-        this.apiRoutes = await apiGenerator.generate();
+        // Regenerate API routes with authentication if enabled
+        console.log('🔌 Regenerating API routes...');
+        const useAuth = app.settings?.auth?.enabled;
+        
+        if (useAuth) {
+          const apiGenerator = new AuthenticatedAPIGenerator(app);
+          apiGenerator.setDatabase(getDatabase());
+          apiGenerator.setEventEmitter(this.eventEmitter);
+          this.apiRoutes = await apiGenerator.generate();
+          
+          // Mount auth routes
+          const authRoutes = createAuthRoutes();
+          this.apiRoutes.route('/auth', authRoutes);
+        } else {
+          const apiGenerator = new APIGenerator(app);
+          apiGenerator.setDatabase(getDatabase());
+          apiGenerator.setEventEmitter(this.eventEmitter);
+          this.apiRoutes = await apiGenerator.generate();
+        }
         
         // Regenerate UI pages
-        const uiGenerator = new UIGenerator(app);
-        this.uiPages = await uiGenerator.generate();
+        console.log('🎨 Regenerating UI components...');
+        const uiManager = new NewUIManager(app);
+        await uiManager.generateAll();
+        this.uiPages = { '/': await uiManager.generateSPAResponse() };
         
         // Regenerate dashboard pages
+        console.log('📊 Regenerating dashboard pages...');
         const dashboardGenerator = new DashboardGenerator(app);
         this.dashboardPages = await dashboardGenerator.generate();
         
-        console.log('✅ Hot reload completed');
+        console.log('✅ Hot reload completed successfully!\n');
       } catch (error) {
         console.error('❌ Hot reload failed:', error);
       }
+    }).catch(error => {
+      console.error('❌ File watching failed:', error);
+      this.watchingStarted = false;
     });
   }
 
@@ -207,14 +261,29 @@ export class RuntimeEngine {
     // Reinitialize event system
     this.eventEmitter = new EventEmitter(this.currentApp);
     
-    // Regenerate API routes
-    const apiGenerator = new APIGenerator(this.currentApp);
-    apiGenerator.setEventEmitter(this.eventEmitter);
-    this.apiRoutes = await apiGenerator.generate();
+    // Regenerate API routes with authentication if enabled
+    const useAuth = this.currentApp.settings?.auth?.enabled;
+    
+    if (useAuth) {
+      const apiGenerator = new AuthenticatedAPIGenerator(this.currentApp);
+      apiGenerator.setDatabase(getDatabase());
+      apiGenerator.setEventEmitter(this.eventEmitter);
+      this.apiRoutes = await apiGenerator.generate();
+      
+      // Mount auth routes
+      const authRoutes = createAuthRoutes();
+      this.apiRoutes.route('/auth', authRoutes);
+    } else {
+      const apiGenerator = new APIGenerator(this.currentApp);
+      apiGenerator.setDatabase(getDatabase());
+      apiGenerator.setEventEmitter(this.eventEmitter);
+      this.apiRoutes = await apiGenerator.generate();
+    }
     
     // Regenerate UI pages
-    const uiGenerator = new UIGenerator(this.currentApp);
-    this.uiPages = await uiGenerator.generate();
+    const uiManager = new NewUIManager(this.currentApp);
+    await uiManager.generateAll();
+    this.uiPages = { '/': await uiManager.generateSPAResponse() };
     
     // Regenerate dashboard pages
     const dashboardGenerator = new DashboardGenerator(this.currentApp);

@@ -161,11 +161,16 @@ export enum ValidationErrorCode {
 // Valid field types
 export const VALID_FIELD_TYPES = [
   'string',
+  'text',
   'number',
+  'integer',
   'boolean',
   'date',
+  'datetime',
+  'json',
+  'uuid',
   'enum',
-  'reference'
+  'relation'
 ] as const;
 
 export type ValidFieldType = typeof VALID_FIELD_TYPES[number];
@@ -183,7 +188,10 @@ export const VALID_VIEW_TYPES = [
   'list',
   'form',
   'detail',
-  'custom'
+  'custom',
+  'kanban',
+  'calendar',
+  'dashboard'
 ] as const;
 
 export type ValidViewType = typeof VALID_VIEW_TYPES[number];

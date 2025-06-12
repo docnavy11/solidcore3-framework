@@ -1,6 +1,5 @@
 import { Hono } from 'https://deno.land/x/hono@v4.3.11/mod.ts';
 import { AppDefinition, EntityDefinition } from '../types/index.ts';
-import { getDatabase } from '../../runtime/database/client.ts';
 import { 
   ResponseBuilder, 
   DatabaseError, 
@@ -10,12 +9,25 @@ import {
   FrameworkError
 } from '../errors/index.ts';
 import { Generator, GeneratorError } from './types.ts';
+import { ValidationSchemaGenerator } from '../validation/schema-generator.ts';
+import { ValidationSchema } from '../validation/types.ts';
+
+// Database interface that core expects (but doesn't implement)
+interface DatabaseClient {
+  execute(sql: string, params?: any[]): Promise<any>;
+  transaction<T>(fn: (tx: DatabaseClient) => Promise<T>): Promise<T>;
+}
 
 export class APIGenerator implements Generator<Hono> {
-  private db = getDatabase();
+  private db: DatabaseClient | null = null;
   private eventEmitter: any = null; // Will be injected
+  private validationGenerator = new ValidationSchemaGenerator();
 
   constructor(private app: AppDefinition) {}
+
+  setDatabase(database: DatabaseClient): void {
+    this.db = database;
+  }
 
   setEventEmitter(eventEmitter: any): void {
     this.eventEmitter = eventEmitter;
@@ -23,6 +35,10 @@ export class APIGenerator implements Generator<Hono> {
 
   async generate(): Promise<Hono> {
     console.log(`[APIGenerator] Generating API routes for ${Object.keys(this.app.entities || {}).length} entities`);
+    
+    if (!this.db) {
+      throw new GeneratorError('APIGenerator', 'Database not configured. Call setDatabase() before generating routes');
+    }
     
     if (!this.app.entities) {
       throw new GeneratorError('APIGenerator', 'No entities defined in app');
@@ -32,10 +48,12 @@ export class APIGenerator implements Generator<Hono> {
     // Generate routes for each entity
     for (const [entityName, entity] of Object.entries(this.app.entities)) {
       const router = this.generateEntityRoutes(entityName, entity);
-      api.route(`/${entityName.toLowerCase()}`, router);
+      const routePath = `/${entityName.toLowerCase()}s`;
+      api.route(routePath, router);
+      console.log(`[APIGenerator] Mounted ${entityName} routes at ${routePath}`);
     }
 
-    console.log('[APIGenerator] Done');
+    console.log('[APIGenerator] Done - API routes generated successfully');
     return api;
   }
 
@@ -100,7 +118,7 @@ export class APIGenerator implements Generator<Hono> {
     router.post('/', async (c) => {
       try {
         const body = await c.req.json();
-        const data = this.validateAndSanitizeInput(body, entity);
+        const data = await this.validateAndSanitizeInput(body, entity);
         
         // Add default values for fields not provided
         for (const [fieldName, field] of Object.entries(entity.fields)) {
@@ -142,7 +160,7 @@ export class APIGenerator implements Generator<Hono> {
       try {
         const id = c.req.param('id');
         const body = await c.req.json();
-        const data = this.validateAndSanitizeInput(body, entity, true);
+        const data = await this.validateAndSanitizeInput(body, entity, true);
         
         const fields = Object.keys(data);
         const values = Object.values(data);
@@ -199,9 +217,9 @@ export class APIGenerator implements Generator<Hono> {
             const id = c.req.param('id');
             
             // Apply modifications
-            if (behavior.modifies) {
-              const fields = Object.keys(behavior.modifies);
-              const values = Object.values(behavior.modifies).map(value => 
+            if (behavior.fields) {
+              const fields = Object.keys(behavior.fields);
+              const values = Object.values(behavior.fields).map(value => 
                 value === 'now' ? new Date().toISOString() : value
               );
               const setClause = fields.map(field => `${field} = ?`).join(', ');
@@ -248,12 +266,37 @@ export class APIGenerator implements Generator<Hono> {
     return router;
   }
 
-  private validateAndSanitizeInput(data: any, entity: EntityDefinition, isUpdate = false): Record<string, any> {
-    const sanitized: Record<string, any> = {};
+  private async validateAndSanitizeInput(data: any, entity: EntityDefinition, isUpdate = false): Promise<Record<string, any>> {
+    // Generate validation schema for this entity
+    const validationSchema = this.validationGenerator.generateEntitySchema(entity);
     
+    // Create validator instance
+    const validator = await import('../../runtime/validation/validator.ts').then(m => new m.RuntimeDataValidator(this.db));
+    
+    // If it's an update, make all fields optional (except those explicitly required for updates)
+    if (isUpdate) {
+      for (const fieldName in validationSchema.fields) {
+        if (!['id', 'created_at', 'updated_at', 'createdAt', 'updatedAt'].includes(fieldName)) {
+          validationSchema.fields[fieldName].required = false;
+        }
+      }
+    }
+    
+    // Validate the data
+    const result = await validator.validate(data, validationSchema);
+    
+    if (!result.isValid) {
+      const errorMessages = result.errors.map(err => `${err.field}: ${err.message}`).join(', ');
+      throw new InvalidRequestDataError(`Validation failed: ${errorMessages}`, { errors: result.errors });
+    }
+    
+    const sanitized: Record<string, any> = result.sanitizedData || {};
+    
+    // Filter out system fields and auto-generated fields
     for (const [fieldName, field] of Object.entries(entity.fields)) {
       // Skip system fields and auto-generated fields
       if (['id', 'created_at', 'updated_at', 'createdAt', 'updatedAt'].includes(fieldName)) {
+        delete sanitized[fieldName];
         continue;
       }
       
@@ -274,22 +317,8 @@ export class APIGenerator implements Generator<Hono> {
         continue;
       }
       
-      // Only add defined values
+      // Only add defined values (validation already handled by validator)
       if (value !== undefined) {
-        // Validate enum values
-        if (field.type === 'enum' && field.values) {
-          if (!field.values.includes(value)) {
-            throw new Error(`Field '${fieldName}' must be one of: ${field.values.join(', ')}`);
-          }
-        }
-        
-        // Validate string length
-        if (field.type === 'string' && typeof value === 'string') {
-          if (field.maxLength && value.length > field.maxLength) {
-            throw new Error(`Field '${fieldName}' exceeds maximum length of ${field.maxLength}`);
-          }
-        }
-        
         sanitized[fieldName] = value;
       }
     }

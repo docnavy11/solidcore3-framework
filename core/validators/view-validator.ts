@@ -38,7 +38,7 @@ export class ViewValidator {
         ValidationErrorCode.VIEW_TYPE_INVALID,
         `View '${viewName}' must have a type`,
         `${viewPath}.type`,
-        'Valid types: list, form, detail, custom',
+        'Valid types: list, form, detail, custom, kanban, calendar, dashboard',
         { viewName }
       ));
       return;
@@ -50,7 +50,7 @@ export class ViewValidator {
         ValidationErrorCode.VIEW_TYPE_INVALID,
         `View '${viewName}' has invalid type '${view.type}'`,
         `${viewPath}.type`,
-        'Valid types: list, form, detail, custom',
+        'Valid types: list, form, detail, custom, kanban, calendar, dashboard',
         { viewName, invalidType: view.type }
       ));
     }
@@ -118,7 +118,7 @@ export class ViewValidator {
   
   private validateViewEntity(view: any, viewName: string, viewPath: string, context: ValidationContext): void {
     // Entity is required for data-driven view types, but not for custom views
-    const requiresEntity = ['list', 'form', 'detail'].includes(view.type);
+    const requiresEntity = ['list', 'form', 'detail', 'kanban', 'calendar'].includes(view.type);
     
     if (requiresEntity && !view.entity) {
       context.addError(context.createError(
@@ -158,6 +158,18 @@ export class ViewValidator {
         
       case 'custom':
         this.validateCustomView(view, viewName, viewPath, context);
+        break;
+        
+      case 'kanban':
+        this.validateKanbanView(view, viewName, viewPath, context);
+        break;
+        
+      case 'calendar':
+        this.validateCalendarView(view, viewName, viewPath, context);
+        break;
+        
+      case 'dashboard':
+        this.validateDashboardView(view, viewName, viewPath, context);
         break;
     }
   }
@@ -399,6 +411,118 @@ export class ViewValidator {
         `Form view '${viewName}' might benefit from clearer naming`,
         viewPath,
         'Consider names like: CreateTask, EditUser, TaskForm, etc.'
+      ));
+    }
+  }
+  
+  private validateKanbanView(view: any, viewName: string, viewPath: string, context: ValidationContext): void {
+    // Kanban views require an entity
+    if (!view.entity) {
+      context.addError(context.createError(
+        ValidationErrorCode.VIEW_ENTITY_NOT_FOUND,
+        `Kanban view '${viewName}' must specify an entity`,
+        `${viewPath}.entity`,
+        'Add entity: { entity: "EntityName" }',
+        { viewName, viewType: view.type }
+      ));
+    }
+    
+    // Validate groupBy field (required for kanban)
+    if (!view.groupBy) {
+      context.addWarning(context.createWarning(
+        'VIEW_KANBAN_NO_GROUP_BY',
+        `Kanban view '${viewName}' should specify a groupBy field`,
+        `${viewPath}.groupBy`,
+        'Add groupBy: { groupBy: "status" } to organize cards into columns'
+      ));
+    } else if (typeof view.groupBy !== 'string') {
+      context.addError(context.createError(
+        'VIEW_KANBAN_GROUP_BY_INVALID',
+        `Kanban view '${viewName}' groupBy must be a string`,
+        `${viewPath}.groupBy`,
+        'Use field name: { groupBy: "status" }'
+      ));
+    }
+    
+    // Validate cardFields (optional)
+    if (view.cardFields && !Array.isArray(view.cardFields)) {
+      context.addError(context.createError(
+        'VIEW_KANBAN_CARD_FIELDS_INVALID',
+        `Kanban view '${viewName}' cardFields must be an array`,
+        `${viewPath}.cardFields`,
+        'Define fields as: ["title", "priority", "assignedTo"]'
+      ));
+    }
+  }
+  
+  private validateCalendarView(view: any, viewName: string, viewPath: string, context: ValidationContext): void {
+    // Calendar views require an entity
+    if (!view.entity) {
+      context.addError(context.createError(
+        ValidationErrorCode.VIEW_ENTITY_NOT_FOUND,
+        `Calendar view '${viewName}' must specify an entity`,
+        `${viewPath}.entity`,
+        'Add entity: { entity: "EntityName" }',
+        { viewName, viewType: view.type }
+      ));
+    }
+    
+    // Validate dateField (required for calendar)
+    if (!view.dateField) {
+      context.addWarning(context.createWarning(
+        'VIEW_CALENDAR_NO_DATE_FIELD',
+        `Calendar view '${viewName}' should specify a dateField`,
+        `${viewPath}.dateField`,
+        'Add dateField: { dateField: "dueDate" } to show events on calendar'
+      ));
+    } else if (typeof view.dateField !== 'string') {
+      context.addError(context.createError(
+        'VIEW_CALENDAR_DATE_FIELD_INVALID',
+        `Calendar view '${viewName}' dateField must be a string`,
+        `${viewPath}.dateField`,
+        'Use field name: { dateField: "dueDate" }'
+      ));
+    }
+    
+    // Validate eventFields (optional)
+    if (view.eventFields && !Array.isArray(view.eventFields)) {
+      context.addError(context.createError(
+        'VIEW_CALENDAR_EVENT_FIELDS_INVALID',
+        `Calendar view '${viewName}' eventFields must be an array`,
+        `${viewPath}.eventFields`,
+        'Define fields as: ["title", "description", "priority"]'
+      ));
+    }
+  }
+  
+  private validateDashboardView(view: any, viewName: string, viewPath: string, context: ValidationContext): void {
+    // Dashboard views typically don't need an entity (they're aggregate views)
+    if (view.entity) {
+      context.addWarning(context.createWarning(
+        'VIEW_DASHBOARD_HAS_ENTITY',
+        `Dashboard view '${viewName}' typically doesn't need a specific entity`,
+        `${viewPath}.entity`,
+        'Dashboards usually aggregate data from multiple entities'
+      ));
+    }
+    
+    // Validate metrics (optional)
+    if (view.metrics && !Array.isArray(view.metrics)) {
+      context.addError(context.createError(
+        'VIEW_DASHBOARD_METRICS_INVALID',
+        `Dashboard view '${viewName}' metrics must be an array`,
+        `${viewPath}.metrics`,
+        'Define metrics as: [{ key: "totalTasks", title: "Total Tasks", icon: "tasks" }]'
+      ));
+    }
+    
+    // Validate widgets (optional)
+    if (view.widgets && !Array.isArray(view.widgets)) {
+      context.addError(context.createError(
+        'VIEW_DASHBOARD_WIDGETS_INVALID',
+        `Dashboard view '${viewName}' widgets must be an array`,
+        `${viewPath}.widgets`,
+        'Define widgets as: [{ type: "recent", title: "Recent Tasks" }]'
       ));
     }
   }

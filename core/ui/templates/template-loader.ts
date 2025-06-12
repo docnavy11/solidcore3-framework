@@ -20,15 +20,20 @@ export class TemplateLoader {
    * 4. Fall back to built-in templates
    */
   static async loadTemplate(templateName: string, context: TemplateContext): Promise<string> {
+    console.log(`[TemplateLoader] Loading template: ${templateName}`);
+    
     // 1. Try app-specific template (can use template variables)
     try {
-      const appTemplatePath = `${this.APP_TEMPLATES_PATH}/${templateName}.ts`;
+      // Use absolute path from project root with cache busting
+      const appTemplatePath = `file://${Deno.cwd()}/app/templates/${templateName}.ts?t=${Date.now()}`;
+      console.log(`[TemplateLoader] Trying app template: ${appTemplatePath}`);
       const templateModule = await import(appTemplatePath);
       if (templateModule.default && typeof templateModule.default === 'function') {
+        console.log(`[TemplateLoader] Successfully loaded app template: ${templateName}`);
         return templateModule.default(context);
       }
     } catch (error) {
-      // App template not found, continue to next option
+      console.log(`[TemplateLoader] App template failed: ${error.message}`);
     }
 
     // 2. Try core system template

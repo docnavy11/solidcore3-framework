@@ -52,10 +52,11 @@ export class ConfigManager {
       console.log(`   Server: ${this.config.server.host}:${this.config.server.port}`);
       console.log(`   Log Level: ${this.config.logging.level}`);
       
-      // Start watching for changes in development
-      if (this.config.development.hotReload && this.config.environment === 'development') {
-        this.startWatching();
-      }
+      // Disable config file watching for now (it was causing server instability)
+      // TODO: Implement proper file watching instead of polling
+      // if (this.config.development.hotReload && this.config.environment === 'development') {
+      //   this.startWatching();
+      // }
       
       return this.config;
     } catch (error) {

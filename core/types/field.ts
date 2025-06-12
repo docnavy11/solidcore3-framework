@@ -34,7 +34,8 @@ export interface NumberFieldDefinition extends BaseFieldDefinition {
 
 export interface EnumFieldDefinition extends BaseFieldDefinition {
   type: 'enum';
-  values: string[];
+  options: string[];
+  values?: string[]; // Alias for backward compatibility
 }
 
 export interface RelationFieldDefinition extends BaseFieldDefinition {

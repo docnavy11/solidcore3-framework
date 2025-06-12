@@ -1,5 +1,5 @@
 import { Context } from 'https://deno.land/x/hono@v4.3.11/mod.ts';
-import { EventData } from '../../runtime/events/emitter.ts';
+import { EventData } from './events.ts';
 
 // Base extension interface
 export interface BaseExtension {

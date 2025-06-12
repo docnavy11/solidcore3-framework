@@ -50,7 +50,10 @@ export function Card({
     ...props
   };
 
-  return View(cardDefaults);
+  return View({ 
+    children,
+    ...cardDefaults 
+  });
 }
 
 export interface SectionProps extends BaseProps {

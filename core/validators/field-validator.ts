@@ -59,8 +59,8 @@ export class FieldValidator {
         this.validateEnumField(field, fieldName, fieldPath, context);
         break;
         
-      case 'reference':
-        this.validateReferenceField(field, fieldName, fieldPath, context);
+      case 'relation':
+        this.validateRelationField(field, fieldName, fieldPath, context);
         break;
         
       case 'string':
@@ -153,35 +153,35 @@ export class FieldValidator {
     }
   }
   
-  private validateReferenceField(field: any, fieldName: string, fieldPath: string, context: ValidationContext): void {
-    // Reference fields must specify target entity
-    if (!field.entity) {
+  private validateRelationField(field: any, fieldName: string, fieldPath: string, context: ValidationContext): void {
+    // Relation fields must specify target entity
+    if (!field.to) {
       context.addError(context.createError(
         ValidationErrorCode.FIELD_REFERENCE_NO_ENTITY,
-        `Reference field '${fieldName}' must specify target entity`,
-        `${fieldPath}.entity`,
-        'Add entity reference: { type: "reference", entity: "EntityName" }',
+        `Relation field '${fieldName}' must specify target entity`,
+        `${fieldPath}.to`,
+        'Add entity reference: { type: "relation", to: "EntityName" }',
         { fieldName }
       ));
       return;
     }
     
     // Entity name must be a string
-    if (typeof field.entity !== 'string') {
+    if (typeof field.to !== 'string') {
       context.addError(context.createError(
         'FIELD_REFERENCE_ENTITY_INVALID',
-        `Reference field '${fieldName}' entity must be a string`,
-        `${fieldPath}.entity`,
-        'Specify entity as: entity: "EntityName"'
+        `Relation field '${fieldName}' to must be a string`,
+        `${fieldPath}.to`,
+        'Specify entity as: to: "EntityName"'
       ));
     }
     
     // Entity name must be a valid identifier
-    if (typeof field.entity === 'string' && !ValidationUtils.isValidIdentifier(field.entity)) {
+    if (typeof field.to === 'string' && !ValidationUtils.isValidIdentifier(field.to)) {
       context.addError(context.createError(
         'FIELD_REFERENCE_ENTITY_NAME_INVALID',
-        `Reference field '${fieldName}' entity name '${field.entity}' is not valid`,
-        `${fieldPath}.entity`,
+        `Relation field '${fieldName}' entity name '${field.to}' is not valid`,
+        `${fieldPath}.to`,
         'Entity names must be valid identifiers (letters, numbers, underscores)'
       ));
     }
