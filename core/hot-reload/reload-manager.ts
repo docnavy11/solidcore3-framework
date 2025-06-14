@@ -5,6 +5,7 @@ import { DevelopmentValidator } from '../validation/development-validator.ts';
 import { logger } from '../logging/logger.ts';
 import { FrameworkError, TruthFileLoadError } from '../errors/index.ts';
 import { formatErrorForConsole, extractLineNumberFromStack } from '../errors/error-formatter.ts';
+import { PathResolver } from '../utils/path-resolver.ts';
 
 export interface ReloadResult {
   success: boolean;
@@ -31,7 +32,10 @@ export class HotReloadManager {
   private debounceTimer: number | null = null;
   private readonly debounceMs = 300;
 
-  constructor(private truthFilePath: string) {}
+  constructor(
+    private truthFilePath: string,
+    private pathResolver?: PathResolver
+  ) {}
 
   async start(): Promise<void> {
     logger.info('Starting hot reload manager', {
@@ -47,7 +51,7 @@ export class HotReloadManager {
 
     // Watch extensions directory if it exists
     try {
-      const extensionsPath = './app/extensions';
+      const extensionsPath = this.getExtensionsPath();
       const stat = await Deno.stat(extensionsPath);
       if (stat.isDirectory) {
         await this.watchDirectory(extensionsPath);
@@ -396,6 +400,15 @@ export class HotReloadManager {
     return Deno.env.get('DENO_ENV') === 'development' || 
            Deno.env.get('NODE_ENV') === 'development' || 
            !Deno.env.get('DENO_ENV');
+  }
+
+  // Path resolver helper methods
+  private getExtensionsPath(): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getExtensionsPath();
+    }
+    // Legacy fallback
+    return './app/extensions';
   }
 }
 

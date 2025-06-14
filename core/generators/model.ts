@@ -2,16 +2,32 @@
 // Creates data hooks and API clients for entities
 
 import { AppDefinition, EntityDefinition } from '../../core/types/index.ts'
+import { logger } from '../../runtime/utils/logger.ts'
+import { PathResolver } from '../utils/path-resolver.ts'
 
 export class ModelGenerator {
-  constructor(private app: AppDefinition) {}
+  constructor(
+    private app: AppDefinition,
+    private pathResolver?: PathResolver
+  ) {}
+  
+  private async fileExists(path: string): Promise<boolean> {
+    try {
+      await Deno.stat(path)
+      return true
+    } catch {
+      return false
+    }
+  }
 
   async generateAllModels(): Promise<void> {
-    console.log('📦 Generating entity models and hooks...')
+    logger.gen('Generating entity models and hooks...');
     
-    // Ensure directory exists
-    await Deno.mkdir('./runtime/generated/models', { recursive: true })
-    await Deno.mkdir('./runtime/generated/api', { recursive: true })
+    // Ensure directories exist
+    const modelsDir = this.getRuntimePath('models')
+    const apiDir = this.getRuntimePath('api')
+    await Deno.mkdir(modelsDir, { recursive: true })
+    await Deno.mkdir(apiDir, { recursive: true })
     
     // Generate API client
     await this.generateAPIClient()
@@ -23,10 +39,14 @@ export class ModelGenerator {
       }
     }
     
-    console.log('✅ Model generation complete')
+    logger.gen('Model generation complete');
   }
 
   private async generateAPIClient(): Promise<void> {
+    // Always generate _ prefixed template
+    const templatePath = this.getRuntimePath('api/_client.js')
+    const customPath = this.getModelsPath('api/client.js')
+    const runtimePath = this.getRuntimePath('api/client.js')
     const clientCode = `// Generated API Client
 // Always regenerated - do not edit
 
@@ -123,12 +143,34 @@ export const apiClient = {
   }
 }`
 
-    await Deno.writeTextFile('./runtime/generated/api/client.js', clientCode)
-    console.log('📝 Generated API client')
+    // Ensure directory exists
+    const apiDir = this.getRuntimePath('api')
+    await Deno.mkdir(apiDir, { recursive: true })
+    
+    // Step 1: Always write template
+    const headerComment = `// Generated API Client - DO NOT EDIT\n// To customize: copy to /app/api/client.js and edit\n// Generated: ${new Date().toISOString()}\n\n`
+    await Deno.writeTextFile(templatePath, headerComment + clientCode)
+    
+    // Step 2: Check for custom override
+    const hasCustom = await this.fileExists(customPath)
+    
+    if (hasCustom) {
+      logger.gen('Using custom API client override');
+      const customContent = await Deno.readTextFile(customPath)
+      await Deno.writeTextFile(runtimePath, customContent)
+    } else {
+      await Deno.writeTextFile(runtimePath, clientCode)
+      logger.gen('Generated API client from template');
+    }
   }
 
   private async generateEntityModel(entityName: string, entityDef: EntityDefinition): Promise<void> {
     const entityLower = entityName.toLowerCase()
+    
+    // Setup paths
+    const templatePath = this.getRuntimePath(`models/_${entityLower}.js`)
+    const customPath = this.getModelsPath(`${entityLower}.js`)
+    const runtimePath = this.getRuntimePath(`models/${entityLower}.js`)
     
     const modelCode = `// Generated ${entityName} Model
 // Always regenerated from truth file - do not edit
@@ -347,7 +389,37 @@ export function get${entityName}FieldOptions(fieldName) {
   return field?.type === 'enum' ? field.options : []
 }`
 
-    await Deno.writeTextFile(`./runtime/generated/models/${entityLower}.js`, modelCode)
-    console.log(`📝 Generated ${entityName} model`)
+    // Step 1: Always write template with header
+    const headerComment = `// Generated ${entityName} Model - DO NOT EDIT\n// To customize: copy to /app/models/${entityLower}.js and edit\n// Generated: ${new Date().toISOString()}\n\n`
+    await Deno.writeTextFile(templatePath, headerComment + modelCode)
+    
+    // Step 2: Check for custom override
+    const hasCustom = await this.fileExists(customPath)
+    
+    if (hasCustom) {
+      logger.gen(`Using custom ${entityName} model override`);
+      const customContent = await Deno.readTextFile(customPath)
+      await Deno.writeTextFile(runtimePath, customContent)
+    } else {
+      await Deno.writeTextFile(runtimePath, modelCode)
+      logger.gen(`Generated ${entityName} model from template`);
+    }
+  }
+
+  // Path resolver helper methods
+  private getRuntimePath(relativePath: string): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getRuntimePath(relativePath)
+    }
+    // Legacy fallback
+    return `./runtime/generated/${relativePath}`
+  }
+
+  private getModelsPath(relativePath: string): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getModelsPath(relativePath)
+    }
+    // Legacy fallback
+    return `./app/models/${relativePath}`
   }
 }

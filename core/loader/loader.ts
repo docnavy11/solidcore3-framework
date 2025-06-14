@@ -1,16 +1,30 @@
 import { AppDefinition } from '../types/index.ts';
 import { join } from '@std/path';
+import { PathResolver } from '../utils/path-resolver.ts';
 
 export class TruthLoader {
-  private appPath: string;
+  private pathResolver: PathResolver | null = null;
+  private legacyAppPath: string; // For backward compatibility
   private cachedApp: AppDefinition | null = null;
 
-  constructor(appPath: string = './app') {
-    this.appPath = appPath;
+  constructor(appPathOrResolver?: string | PathResolver) {
+    if (appPathOrResolver instanceof PathResolver) {
+      this.pathResolver = appPathOrResolver;
+      this.legacyAppPath = './app'; // fallback
+    } else {
+      this.legacyAppPath = appPathOrResolver || './app';
+    }
   }
 
   async load(): Promise<AppDefinition> {
-    const truthPath = join(this.appPath, 'app.truth.ts');
+    let truthPath: string;
+    
+    if (this.pathResolver) {
+      truthPath = this.pathResolver.getTruthFile();
+    } else {
+      // Legacy mode - use the old path construction
+      truthPath = join(this.legacyAppPath, 'app.truth.ts');
+    }
     
     try {
       // Clear cache in development
@@ -57,7 +71,14 @@ export class TruthLoader {
       return;
     }
 
-    const truthPath = join(this.appPath, 'app.truth.ts');
+    let truthPath: string;
+    
+    if (this.pathResolver) {
+      truthPath = this.pathResolver.getTruthFile();
+    } else {
+      // Legacy mode
+      truthPath = join(this.legacyAppPath, 'app.truth.ts');
+    }
     
     try {
       this.watcher = Deno.watchFs(truthPath);

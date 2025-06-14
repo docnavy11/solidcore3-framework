@@ -163,11 +163,31 @@ export interface MonitoringConfig {
   };
 }
 
+export interface SourcePathsConfig {
+  truthFile: string;
+  features: string;
+  templates: string;
+  static: string;
+  extensions: string;
+  models: string;
+  views: string;
+  shared: string;
+  components: string;
+}
+
+export interface OutputPathsConfig {
+  runtime: string;
+}
+
 export interface FrameworkConfig {
   // Core configuration
   database: DatabaseConfig;
   server: ServerConfig;
   development: DevelopmentConfig;
+  
+  // Source and output paths
+  sources: SourcePathsConfig;
+  output: OutputPathsConfig;
   
   // Feature configuration
   extensions: ExtensionsConfig;

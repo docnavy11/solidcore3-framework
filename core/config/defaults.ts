@@ -15,6 +15,23 @@ export function getDefaultConfig(): FrameworkConfig {
       retryDelay: 1000
     },
     
+    // Source and output paths
+    sources: {
+      truthFile: './app/app.truth.ts',
+      features: './app/features',
+      templates: './app/templates',
+      static: './app/static',
+      extensions: './app/extensions',
+      models: './app/models',
+      views: './app/views',
+      shared: './app/shared',
+      components: './app/components'
+    },
+    
+    output: {
+      runtime: './runtime/generated'
+    },
+    
     server: {
       port: 8000,
       host: 'localhost',

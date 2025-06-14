@@ -3,15 +3,20 @@
 
 import { AppDefinition, ViewDefinition } from '../../core/types/index.ts'
 import { exists } from 'https://deno.land/std@0.208.0/fs/mod.ts'
+import { logger } from '../../runtime/utils/logger.ts'
+import { PathResolver } from '../utils/path-resolver.ts'
 
 export class NewComponentGenerator {
-  constructor(private app: AppDefinition) {}
+  constructor(
+    private app: AppDefinition,
+    private pathResolver?: PathResolver
+  ) {}
 
   async generateAllViews(): Promise<void> {
-    console.log('🎨 Generating views from templates...')
+    logger.gen('Generating views from templates...');
     
     if (!this.app.views) {
-      console.log('No views defined in truth file')
+      logger.gen('No views defined in truth file');
       return
     }
 
@@ -19,53 +24,105 @@ export class NewComponentGenerator {
       await this.generateView(viewName, view)
     }
     
-    console.log('✅ View generation complete')
+    logger.gen('View generation complete');
   }
 
   async generateView(viewName: string, view: ViewDefinition): Promise<void> {
-    const viewPath = `./app/views/${viewName}.js`
+    // Determine feature directory
+    const featureDir = this.getFeatureDirectory(viewName, view)
     
-    // Always regenerate views (removed the exists check)
-    console.log(`🔄 Regenerating ${viewName}.js...`)
+    // Step 1: Always generate the _ prefixed template file
+    const templatePath = this.getViewPath(featureDir, `_${viewName}.js`)
+    const customPath = this.getViewPath(featureDir, `${viewName}.js`)
+    
+    logger.gen(`Generating _${viewName}.js template...`);
 
     try {
       // Determine which template to use
       let componentCode: string
 
-      if (view.type === 'custom') {
-        // Custom view points to existing component
-        componentCode = this.generateCustomViewWrapper(viewName, view)
-      } else if (view.type === 'template') {
-        // Template-based view
-        componentCode = await this.generateFromTemplate(viewName, view)
-      } else {
-        // Legacy support - treat as template type
-        const templateName = this.mapLegacyTypeToTemplate(view.type)
-        componentCode = await this.generateFromTemplate(viewName, { ...view, template: templateName })
+      switch (view.type) {
+        case 'generator':
+          // Generate from template
+          componentCode = await this.generateFromTemplate(viewName, view)
+          break;
+          
+        case 'custom':
+          // Point to existing component
+          componentCode = this.generateCustomViewWrapper(viewName, view)
+          break;
+          
+        case 'static':
+          // Serve static content
+          componentCode = this.generateStaticViewWrapper(viewName, view)
+          break;
+          
+        default:
+          throw new Error(`Unknown view type: ${view.type}`)
       }
 
-      // Ensure views directory exists
-      await Deno.mkdir('./app/views', { recursive: true })
+      // Ensure feature directory exists
+      const viewDir = this.getViewDirectory(featureDir)
+      await Deno.mkdir(viewDir, { recursive: true })
       
-      // Write the component
-      await Deno.writeTextFile(viewPath, componentCode)
-      console.log(`✨ Generated ${viewName}.js`)
+      // Step 2: Always write the _ prefixed template
+      await Deno.writeTextFile(templatePath, this.addGeneratedHeader(componentCode, viewName))
+      logger.gen(`Generated _${viewName}.js template`);
+      
+      // Step 3: Determine which version to use for runtime
+      const hasCustom = await exists(customPath)
+      
+      // Ensure runtime directory exists
+      const runtimeDir = this.getRuntimePath('views')
+      await Deno.mkdir(runtimeDir, { recursive: true })
+      const runtimePath = this.getRuntimePath(`views/${viewName}.js`)
+      
+      if (hasCustom) {
+        logger.gen(`Using custom override: ${viewName}.js`);
+        // Copy custom file to runtime (user's version is the source of truth)
+        const customContent = await Deno.readTextFile(customPath)
+        await Deno.writeTextFile(runtimePath, customContent)
+      } else {
+        // Use generated template for runtime
+        await Deno.writeTextFile(runtimePath, componentCode)
+        logger.gen(`Generated ${viewName}.js from template`);
+      }
       
     } catch (error) {
-      console.error(`❌ Failed to generate ${viewName}:`, error)
+      logger.genError(`Failed to generate ${viewName}`, { error: error.message });
       // Generate error component as fallback
       const errorComponent = this.generateErrorComponent(viewName, error.message)
-      await Deno.writeTextFile(viewPath, errorComponent)
+      await Deno.writeTextFile(templatePath, this.addGeneratedHeader(errorComponent, viewName))
     }
   }
 
+  private addGeneratedHeader(componentCode: string, viewName: string): string {
+    const header = `// Generated ${viewName} Component - DO NOT EDIT
+//
+// 🤖 This is a generated template file. To customize:
+//     1. Copy this file to ${viewName}.js (remove the _)
+//     2. Edit your copy - the generator will use your version
+//     3. Your custom file will override this template
+//
+// Generated: ${new Date().toISOString()}
+
+`
+    
+    return header + componentCode
+  }
+
   private generateCustomViewWrapper(viewName: string, view: ViewDefinition): string {
-    const componentName = view.component || viewName
+    // Use path (required for custom views)
+    const componentPath = view.path;
+    const componentName = componentPath.split('/').pop()?.replace('.js', '') || viewName;
     const importName = componentName + 'Component'  // Avoid naming conflicts
     
+    // Use path directly
+    const importPath = `../../${componentPath}`;
+    
     return `// Custom View: ${viewName}
-// Points to existing component: ${componentName}
-import ${importName} from '../components/app/${componentName}.js'
+// Points to existing component: ${componentPath}
+import ${importName} from '${importPath}'
 
 export default function ${viewName}(props) {
   const { html } = window
@@ -73,17 +130,63 @@ export default function ${viewName}(props) {
   return html\`<\${${importName}} ....\${props} />\`
 }`
   }
+  
+  private generateStaticViewWrapper(viewName: string, view: ViewDefinition): string {
+    // Use path (required for static views)
+    const contentPath = view.path;
+    
+    return `// Static View: ${viewName}
+// Serves static content from: ${contentPath}
+
+export default function ${viewName}(props) {
+  const { html, useEffect, useState } = window
+  const [content, setContent] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+  
+  useEffect(() => {
+    fetch('/features/${contentPath}')
+      .then(response => {
+        if (!response.ok) {
+          throw new Error(\`Failed to load content: \${response.status}\`)
+        }
+        return response.text()
+      })
+      .then(text => {
+        setContent(text)
+        setLoading(false)
+      })
+      .catch(err => {
+        setError(err.message)
+        setLoading(false)
+      })
+  }, [])
+  
+  if (loading) {
+    return html\`<div class="loading">Loading content...</div>\`
+  }
+  
+  if (error) {
+    return html\`<div class="error">Error loading content: \${error}</div>\`
+  }
+  
+  return html\`<div dangerouslySetInnerHTML=\${{ __html: content }}></div>\`
+}`
+  }
 
   private async generateFromTemplate(viewName: string, view: ViewDefinition): Promise<string> {
-    if (!view.template) {
-      throw new Error(`Template not specified for view ${viewName}`)
+    // Get generator value (required for generator views)
+    const generatorName = view.generator;
+    
+    if (!generatorName) {
+      throw new Error(`Generator not specified for generator view ${viewName}`)
     }
 
     // Load template
-    const templatePath = `./app/templates/${view.template}.js`
+    const templatePath = `./app/templates/generators/${generatorName}.js`
     
     if (!await exists(templatePath)) {
-      throw new Error(`Template not found: ${view.template}`)
+      throw new Error(`Template not found: ${generatorName}`)
     }
 
     try {
@@ -91,7 +194,7 @@ export default function ${viewName}(props) {
       const templateModule = await import(`file://${Deno.cwd()}/${templatePath}`)
       
       if (!templateModule.generateComponent) {
-        throw new Error(`Template ${view.template} does not export generateComponent function`)
+        throw new Error(`Template ${generatorName} does not export generateComponent function`)
       }
 
       // Validate template inputs
@@ -106,7 +209,7 @@ export default function ${viewName}(props) {
       return templateModule.generateComponent(viewName, view, entityDef)
       
     } catch (error) {
-      throw new Error(`Failed to process template ${view.template}: ${error.message}`)
+      throw new Error(`Failed to process template ${generatorName}: ${error.message}`)
     }
   }
 
@@ -133,7 +236,7 @@ export default function ${viewName}(props) {
 
       // Check layout references
       if (inputRules.type === 'layout' && value) {
-        const layoutPath = `./app/layouts/${value}.js`
+        const layoutPath = this.getLayoutPath(`${value}.js`)
         // Note: We could check if layout exists, but for now just warn
       }
 
@@ -157,17 +260,11 @@ export default function ${viewName}(props) {
     }
   }
 
-  private mapLegacyTypeToTemplate(type: string): string {
-    const mapping: Record<string, string> = {
-      'list': 'system/list',
-      'detail': 'system/detail',
-      'form': 'system/form',
-      'kanban': 'system/kanban',
-      'calendar': 'system/calendar',
-      'dashboard': 'system/dashboard'
-    }
-    
-    return mapping[type] || 'system/list'
+  private getFeatureDirectory(viewName: string, view: ViewDefinition): string {
+    // Extract directory from path (path is now required)
+    const pathParts = view.path.split('/');
+    pathParts.pop(); // Remove filename
+    return pathParts.length > 0 ? `features/${pathParts.join('/')}` : 'features';
   }
 
   private generateErrorComponent(viewName: string, error: string): string {
@@ -200,7 +297,8 @@ export default function ${viewName}() {
       throw new Error(`View ${viewName} not found in truth file`)
     }
 
-    const viewPath = `./app/views/${viewName}.js`
+    const featureDir = this.getFeatureDirectory(viewName, view)
+    const viewPath = this.getViewPath(featureDir, `${viewName}.js`)
     
     // Remove existing file
     try {
@@ -211,5 +309,40 @@ export default function ${viewName}() {
 
     // Regenerate
     await this.generateView(viewName, view)
+  }
+
+  // Path resolver helper methods
+  private getViewPath(featureDir: string, filename: string): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getViewsPath(`${featureDir}/${filename}`)
+    }
+    // Legacy fallback
+    return `./app/${featureDir}/${filename}`
+  }
+
+  private getViewDirectory(featureDir: string): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getViewsPath(featureDir)
+    }
+    // Legacy fallback
+    return `./app/${featureDir}`
+  }
+
+  private getRuntimePath(relativePath: string): string {
+    if (this.pathResolver) {
+      return this.pathResolver.getRuntimePath(relativePath)
+    }
+    // Legacy fallback
+    return `./runtime/generated/${relativePath}`
+  }
+
+  private getLayoutPath(filename: string): string {
+    if (this.pathResolver) {
+      // Layouts are typically in a layouts directory, but we don't have that in our config yet
+      // For now, use shared path as a fallback
+      return this.pathResolver.getSharedPath(`layouts/${filename}`)
+    }
+    // Legacy fallback
+    return `./app/layouts/${filename}`
   }
 }
